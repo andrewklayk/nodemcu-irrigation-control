@@ -18,7 +18,6 @@ DateTime now;
 #define ENOUGH_PERCENT 80
 
 struct PlantCell {
-  // id of cell
   short id;
   // humidity sensor pin
   short hSensorPin;
@@ -31,17 +30,17 @@ struct PlantCell {
   bool valveIsOpen;
   short humidityPercent;
   bool timeRegulated;
-
+  PlantCell() {}
   PlantCell(short _id, short _hs, short _wv, short _tr, short crP, short enP) {
     id = _id;
     hSensorPin = _hs;
     waterValve = _wv;
     timeRegulated = _tr;
     valveIsOpen = false;
+    humidityPercent = 0;
     criticalPercent = crP;
     enoughPercent = enP;
   }
-
   bool ReadHumidity() {
     short h_buff = humidityPercent;
     humidityPercent = map(analogRead(hSensorPin), AIR_VALUE, WATER_VALUE, 0, 100);
@@ -49,17 +48,19 @@ struct PlantCell {
   }
 };
 
-
 //const char* ssid = "TP-LINK_3E2D8C";  // SSID
 //const char* password = "";  //пароль
 const char* ssid = "Florencii 12";  // SSID
 const char* password = "0504720119";  //пароль
-
-short cellCount = 2;
-PlantCell cells [] = {PlantCell(0, A0, D4, false, 70, 81), PlantCell(1, A0, D7, false, 70, 81)};
-
+short cellCount = 0;
+const short cellCountMax = 25;
+PlantCell cells [cellCountMax] = {};/* = {PlantCell(0, A0, D4, false, 70, 81), PlantCell(1, A0, D7, false, 70, 81)};*/
+AsyncWebServer server(80);
 
 void setup() {
+  cells[0] = PlantCell(0, A0, D4, false, 70, 81);
+  cells[1] = PlantCell(1, A0, D7, false, 70, 81);
+  cellCount = 2;
   static const char * index_html PROGMEM = R"rawliteral(<!DOCTYPE html>
     <html>
       <head>
@@ -133,23 +134,24 @@ void setup() {
                 const jsonBody = JSON.stringify(cell);
                 console.log("Sending POST with: ");
                 console.log(jsonBody);
-                fetch("/cells", {
+                fetch("/", {
                     method: "POST",
                     body: jsonBody
                 }).then(response => {
                     console.log("Response: ", response);
                 });
             }
-            function constructCells() {
+            function constructCell(_hPin, _wPin, _tReg, _critPercent, _enoughPercent) {
                 const newCell = {
-                    id: 5,
-                    hPin: 160,
-                    wPin: 212,
-                    tReg: false,
-                    crP: 70,
-                    enP: 81
+                    hPin: _hPin,
+                    wPin: _wPin,
+                    tReg: _tReg,
+                    crP: _critPercent,
+                    enP: _enoughPercent
                 };
-                postCell(newCell);
+                return newCell;
+            }
+            function loadCells() {
                 const list = document.querySelector('#cells');
                 var cells = [];
                 fetch("/cells").then(function(response) {
@@ -158,17 +160,6 @@ void setup() {
                         cells = json.data;
                         cells.forEach(cell => {
                             var currentCell = document.getElementById("cell" + cell.id);
-/*                            
-                            currentCell.childNode.forEach(function(row) {
-                                row.childNodes.forEach(function(secondChildItem) {
-                                    if(secondChildItem.className == "humidity-value cell-property-value") {
-                                        secondChildItem.textContent = "5";
-                                    }
-                                })
-                            }
-
-                            if(currentCell == null)
-*/
                             cellElement = createHtmlCell(cell.id, cell.hPin, cell.hVal, cell.on, cell.hCrit, cell.wPin);
                             if(currentCell == null)
                             {
@@ -179,11 +170,40 @@ void setup() {
                                 list.replaceChild(cellElement, currentCell);
                             }
                         });
-                    });
+                    })/*.then(function() {
+                        var formCreateCell = document.createElement('form');
+                        formCreateCell.setAttribute("method", "post");
+                        formCreateCell.setAttribute("action", "/cells");
+                        var inputHumPin = document.createElement("input"); 
+                        inputHumPin.setAttribute('type',"text");
+                        inputHumPin.setAttribute('name',"Humidity pin");
+                        var inputWaterPin = document.createElement("input"); 
+                        inputWaterPin.setAttribute('type',"text");
+                        inputWaterPin.setAttribute('name',"Water pin");
+                        var inputTimeReg = document.createElement("input"); 
+                        inputTimeReg.setAttribute('type',"text");
+                        inputTimeReg.setAttribute('name',"Time-regulated");
+                        var inputCP = document.createElement("input"); 
+                        inputCP.setAttribute('type',"text");
+                        inputCP.setAttribute('name',"CP");
+                        var inputEP = document.createElement("input"); 
+                        inputEP.setAttribute('type',"text");
+                        inputEP.setAttribute('name',"EP");
+                        var submitBtn = document.createElement("input");
+                        submitBtn.setAttribute('type',"submit");
+                        submitBtn.setAttribute('value',"Create");
+                        formCreateCell.appendChild(inputHumPin);
+                        formCreateCell.appendChild(inputWaterPin);
+                        formCreateCell.appendChild(inputTimeReg);
+                        formCreateCell.appendChild(inputCP);
+                        formCreateCell.appendChild(inputEP);
+                        formCreateCell.appendChild(submitBtn);
+                    }
+                    )*/;
                 });
             }
             
-            setInterval(constructCells, 5000);
+            setInterval(loadCells, 5000);
             
             function updateValues() {
                 var cells = document.getElementById("cells").childNodes;
@@ -250,56 +270,67 @@ void setup() {
           </style>
           <title>Control Panel</title>
       </head>
-      <body onLoad="constructCells()">
+      <body>
           <header>
               <h2 style="height: fit-content; margin-top: 0px;"> ZPA ANDRIJIVNA</h2>
           </header>
           <div class="content">
-              <div id="cells" class="cell-container"></div>
+              <div id="cells" class="cell-container">
+                  <form id = "addForm" class="cell" method="POST" action="/">
+                      <input type="text" name="hPin" id="hPin">
+                      <input type="text" name="wPin" id="wPin">
+                      <input type="text" name="tReg" id="tReg">
+                      <input type="text" name="hCrit" id="hCrit">
+                      <input type="text" name="hEn" id="hEn">
+                      <input type="submit" value="Submit">
+                  </form>    
+              </div>
           </div>
+          <script>
+             document.getElementById('addForm').addEventListener('submit', function(e) {
+                e.preventDefault(); //to prevent form submission
+                const hPin = document.getElementById('hPin').value;
+                const wPin = document.getElementById('wPin').value;
+                const tReg = document.getElementById('tReg').value;
+                const hCrit = document.getElementById('hCrit').value;
+                const hEn = document.getElementById('hEn').value;
+                postCell(constructCell(hPin, wPin, tReg, hCrit, hEn));
+            });
+          </script>
       </body>
     </html>)rawliteral";
 
   Serial.begin(115200);
-
   delay(100);
-
-  static AsyncWebServer server(80);
-
   Serial.println("Connecting to ");
   Serial.println(ssid);
-
   // подключаемся к локальной Wi-Fi сети
   WiFi.begin(ssid, password);
-
   // проверка подключения Wi-Fi к сети
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
   Serial.println("");
   Serial.println("WiFi connected..!");
   Serial.print("Got IP: ");
   Serial.println(WiFi.localIP());
-
   // Initialize all to HIGH (0)
   for (short i = 0; i < cellCount ; i++)
   {
     pinMode(cells[i].waterValve, OUTPUT);
     digitalWrite(cells[i].waterValve, HIGH);
   }
-
   // on loading the index page, send the HTML
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
+  server.on("/index", HTTP_ANY, [](AsyncWebServerRequest * request) {
+    Serial.println("Got index request");
     request->send_P(200, "text/html", index_html);
+    Serial.println("Sent HTML");
   });
-
   // on request, send state updates
   server.on("/cells", HTTP_GET, [](AsyncWebServerRequest * request) {
     request->send_P(200, "text/plain", createUpdatesJson(cellCount, cells));
   });
-
   // add cells
   /*server.on("/cells", HTTP_POST, [](AsyncWebServerRequest * request) {
     StaticJsonDocument<256> jsonBuffer;
@@ -308,22 +339,27 @@ void setup() {
     Serial.println(jsonBuffer.size());
   });*/
   server.on(
-    "/cells",
+    "/",
     HTTP_POST,
     [](AsyncWebServerRequest * request){},
     NULL,
     [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
+      Serial.println("POST request");
       String res = String((char *)data);
-      PlantCell newCell = createCellFromString(res);
-      Serial.println(res);
-
-      request->send(200);
+      PlantCell newCell = createCellFromString(res, cellCount);
+      if(addCell(newCell)) {
+        Serial.println("added: ");
+        Serial.println(res);
+        request->send(200);
+      }
+      else {
+        Serial.println("add failed");
+        request->send(100);
+      }
   });
   server.begin();
-
   Wire.begin(D2, D3);
   rtc.begin();
-
   Serial.println("HTTP server started");
 }
 
@@ -375,17 +411,14 @@ void loop() {
     currentMillis = millis();
   }
 }
-
 bool TimeIsBetween(int &aHour, int &aMinute, int &bhour, int &bminute, int &chour, int &cminute) {
   //TEST
   return true;
   //return TimeIsEarlier(aHour, aMinute, bhour, bminute) && TimeIsEarlier(bhour, bminute, chour, cminute);
 }
-
 bool TimeIsEarlier(int &aHour, int &aMinute, int &bhour, int &bminute) {
   return (aHour < bhour || (bhour == bhour && aMinute < bminute));
 }
-
 void printHumidity(short &i, short &value) {
   Serial.print(i);
   Serial.print(": ");
@@ -416,13 +449,32 @@ void printHumidity(short &i, short &value) {
     //lcd.print(value);
     //lcd.print("% ");*/
 }
-
-PlantCell createCellFromString(String& json) {
+bool addCell(PlantCell& c) {
+  if(cellCount == cellCountMax)
+    return false;
+  else {
+    cellCount++;
+    cells[cellCount-1] = c;
+    return true;
+  }
+  /*cellCount++;
+  PlantCell *temp = new PlantCell[cellCount];
+  for(short i = 0; i < cellCount-1; i++) {
+    temp[i] = cells[i];
+  }
+  temp[cellCount-1] = c;
+  delete [] cells;*/
+}
+PlantCell createCellFromString(String& json, short& id) {
   StaticJsonDocument<200> doc;
   deserializeJson(doc, json);
-  return PlantCell(doc["id"], doc["hPin"], doc["wPin"], doc["tReg"], doc["crP"], doc["enP"]);
+  Serial.println((short)doc["hPin"]);
+  Serial.println((short)doc["wPin"]);
+  Serial.println((bool)doc["tReg"]);
+  Serial.println((short)doc["hCrit"]);
+  Serial.println((short)doc["hEn"]);
+  return PlantCell(id, (short)doc["hPin"], (short)doc["wPin"], (short)doc["tReg"], (short)doc["hCrit"], (short)doc["hEn"]);
 }
-
 char * createUpdatesJson(short &cellCount, PlantCell* cells) {
   DynamicJsonDocument doc(2048);
   JsonArray data = doc.createNestedArray("data");
