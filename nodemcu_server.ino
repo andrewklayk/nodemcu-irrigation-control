@@ -1,3 +1,8 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+//#include <LiquidCrystal.h>
+
 #include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -5,12 +10,22 @@
 #include "RTClib.h"
 #include <Wire.h>
 
+//pins for lcd
+//const int RS = 11, EN = 12, D4 = 2, D5 = 3, D6 = 4, D7 = 5;
+//LCD
+//LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
+
 RTC_DS1307 rtc;
 DateTime now;
 //value of humidity sensor in air
 #define AIR_VALUE 1024
 //value of humidity sensor in water
 #define WATER_VALUE 640
+
+// Temperature sensor pin
+const int oneWireBus = 7;
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors(&oneWire);
 
 //when humidity percent falls lower than this value, start watering
 #define CRITICAL_PERCENT 50
@@ -48,10 +63,6 @@ struct PlantCell {
   }
 };
 
-//const char* ssid = "TP-LINK_3E2D8C";  // SSID
-//const char* password = "";  //пароль
-const char* ssid = "Florencii 12";  // SSID
-const char* password = "0504720119";  //пароль
 short cellCount = 0;
 const short cellCountMax = 25;
 PlantCell cells [cellCountMax] = {};/* = {PlantCell(0, A0, D4, false, 70, 81), PlantCell(1, A0, D7, false, 70, 81)};*/
@@ -59,7 +70,7 @@ AsyncWebServer server(80);
 
 void setup() {
   cells[0] = PlantCell(0, A0, D4, false, 70, 81);
-  cells[1] = PlantCell(1, A0, D7, false, 70, 81);
+  cells[1] = PlantCell(1, A0, D10, false, 70, 81);
   cellCount = 2;
   static const char * index_html PROGMEM = R"rawliteral(<!DOCTYPE html>
     <html>
@@ -300,13 +311,19 @@ void setup() {
       </body>
     </html>)rawliteral";
 
+
+  static const char* ssid = "TP-LINK_3E2D8C";  // SSID
+  static const char* password = "";  //пароль
+  //static const char* ssid = "Florencii 12";  // SSID
+  //static const char* password = "0504720119";  //пароль
+
+  // Connect to wifi
   Serial.begin(115200);
   delay(100);
   Serial.println("Connecting to ");
   Serial.println(ssid);
-  // подключаемся к локальной Wi-Fi сети
   WiFi.begin(ssid, password);
-  // проверка подключения Wi-Fi к сети
+  // Wait for connection
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -315,13 +332,13 @@ void setup() {
   Serial.println("WiFi connected..!");
   Serial.print("Got IP: ");
   Serial.println(WiFi.localIP());
-  // Initialize all to HIGH (0)
+  // Initialize all to 0 (HIGH because idk electromagic and it works that way)
   for (short i = 0; i < cellCount ; i++)
   {
     pinMode(cells[i].waterValve, OUTPUT);
     digitalWrite(cells[i].waterValve, HIGH);
   }
-  // on loading the index page, send the HTML
+  // on loading index page, send HTML
   server.on("/index", HTTP_ANY, [](AsyncWebServerRequest * request) {
     Serial.println("Got index request");
     request->send_P(200, "text/html", index_html);
@@ -337,45 +354,66 @@ void setup() {
     Serial.print("Got POST request with size: ");
     deserializeJson(jsonBuffer, request->getParam("body", true)->value());
     Serial.println(jsonBuffer.size());
-  });*/
+    });*/
   server.on(
     "/",
     HTTP_POST,
-    [](AsyncWebServerRequest * request){},
-    NULL,
-    [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-      Serial.println("POST request");
-      String res = String((char *)data);
-      PlantCell newCell = createCellFromString(res, cellCount);
-      if(addCell(newCell)) {
-        Serial.println("added: ");
-        Serial.println(res);
-        request->send(200);
-      }
-      else {
-        Serial.println("add failed");
-        request->send(100);
-      }
+  [](AsyncWebServerRequest * request) {},
+  NULL,
+  [](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
+    Serial.println("POST request");
+    String res = String((char *)data);
+    PlantCell newCell = createCellFromString(res, cellCount);
+    if (addCell(newCell)) {
+      Serial.println("added: ");
+      Serial.println(res);
+      request->send(200);
+    }
+    else {
+      Serial.println("add failed");
+      request->send(100);
+    }
   });
+
+  // Start server
   server.begin();
+  Serial.println("HTTP server started");
+
+  // Start clock
   Wire.begin(D2, D3);
   rtc.begin();
-  Serial.println("HTTP server started");
+
+  // Start temperature
+  sensors.begin();
+
+  // Start LCD
+  //lcd.begin(16, 2);
+  //lcd.setCursor(0, 0);
+  //lcd.print("UUYCTOB JlOX");
+  //delay(3000);
+  //lcd.clear();
 }
 
 void loop() {
   static long currentMillis;
   static int interval = 5000;
+  static float temp = 0;
   //if *interval* milliseconds have passed (instead of delay):
   if (millis() - currentMillis >= interval)
   {
+    // Read time
     now = rtc.now();
     /*Serial.print(now.hour());
       Serial.print(":");
       Serial.print(now.minute());
       Serial.print(":");
       Serial.println(now.second());*/
-    //read humidity values
+    // Read temperature
+    sensors.requestTemperatures();
+    temp = sensors.getTempCByIndex(0);
+    Serial.print(temp);
+    Serial.println("ºC");
+    // Read humidity values
     for (short i = 0; i < cellCount; i++) {
       if (cells[i].ReadHumidity()) {
         printHumidity(i, cells[i].humidityPercent);
@@ -443,28 +481,50 @@ void printHumidity(short &i, short &value) {
       pos2 = 1;
       break;
     }
-    //lcd.setCursor(pos1, pos2);
-    //lcd.print(i + 1);
-    //lcd.print(":");
-    //lcd.print(value);
-    //lcd.print("% ");*/
+    lcd.setCursor(pos1, pos2);
+    lcd.print(i + 1);
+    lcd.print(":");
+    lcd.print(value);
+    lcd.print("% ");*/
 }
+
+// TODO
+bool removeCell(short& id) {
+  // Find cell with this id in array
+  short i = 0;
+  for (; i < cellCount && cells[i].id != id; i++) {
+  }
+  // Cell with this id not found
+  if (i == cellCount)
+  {
+    return false;
+  }
+  // Else, remove the found cell
+  for (; i < cellCount - 1; i++) {
+    cells[i] = cells[i + 1];
+  }
+  cellCount--;
+  return true;
+}
+
 bool addCell(PlantCell& c) {
-  if(cellCount == cellCountMax)
+  if (cellCount >= cellCountMax)
     return false;
   else {
     cellCount++;
-    cells[cellCount-1] = c;
+    cells[cellCount - 1] = c;
     return true;
   }
   /*cellCount++;
-  PlantCell *temp = new PlantCell[cellCount];
-  for(short i = 0; i < cellCount-1; i++) {
+    PlantCell *temp = new PlantCell[cellCount];
+    for(short i = 0; i < cellCount-1; i++) {
     temp[i] = cells[i];
-  }
-  temp[cellCount-1] = c;
-  delete [] cells;*/
+    }
+    temp[cellCount-1] = c;
+    delete [] cells;*/
 }
+
+// Parse JSONDocument and return a new PlantCel
 PlantCell createCellFromString(String& json, short& id) {
   StaticJsonDocument<200> doc;
   deserializeJson(doc, json);
@@ -475,6 +535,8 @@ PlantCell createCellFromString(String& json, short& id) {
   Serial.println((short)doc["hEn"]);
   return PlantCell(id, (short)doc["hPin"], (short)doc["wPin"], (short)doc["tReg"], (short)doc["hCrit"], (short)doc["hEn"]);
 }
+
+// Create a JSONDocument from PlantCell object
 char * createUpdatesJson(short &cellCount, PlantCell* cells) {
   DynamicJsonDocument doc(2048);
   JsonArray data = doc.createNestedArray("data");
