@@ -313,9 +313,7 @@ void setup() {
 
 
   static const char* ssid = "TP-LINK_3E2D8C";  // SSID
-  static const char* password = "";  //пароль
-  //static const char* ssid = "Florencii 12";  // SSID
-  //static const char* password = "0504720119";  //пароль
+  static const char* password = "";  //pwd
 
   // Connect to wifi
   Serial.begin(115200);
@@ -426,7 +424,6 @@ void loop() {
       {
         //if soil moisture too low and valve is closed, open valve
         if (!cells[i].valveIsOpen && cells[i].humidityPercent <= cells[i].criticalPercent) {
-          // INVERSIJA
           Serial.print("Opened ");
           Serial.print(i);
           Serial.print(" with humidity ");
@@ -437,7 +434,6 @@ void loop() {
       }
       //if valve open and moisture is high enough, close valve
       if (cells[i].valveIsOpen && (cells[i].humidityPercent >= cells[i].enoughPercent)) {
-        // INVERSIJA
         Serial.print("Closed ");
         Serial.print(i);
         Serial.print(" with humidity ");
